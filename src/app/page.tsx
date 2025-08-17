@@ -11,7 +11,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { ArrowUpDown, Filter, Plane, Ship, Truck, Leaf, Search } from "lucide-react";
+import { ArrowUpDown, Plane, Ship, Truck, Leaf, Search } from "lucide-react";
 import { motion } from "framer-motion";
 
 // --- helpers (placeholder logic for MVP demo) ---
@@ -25,15 +25,28 @@ const MODES = [
   { id: "air", label: "Air", icon: Plane, emissionFactor: 500 }, // g CO2e per ton-km (illustrative)
   { id: "ocean", label: "Ocean", icon: Ship, emissionFactor: 16 },
   { id: "road", label: "Road", icon: Truck, emissionFactor: 120 },
-];
+]; 
 
-const CARRIERS: Record<string, string[]> = {
+// types
+type ModeId = "air" | "ocean" | "road";
+type ServiceId = "express" | "standard" | "economy";
+type SortKey = "price" | "eta" | "co2";
+interface Quote {
+  carrier: string;
+  price: number;
+  etaDays: number;
+  co2e: number;
+  mode: ModeId;
+  service: ServiceId;
+}
+
+const CARRIERS: Record<ModeId, string[]> = {
   air: ["DHL Express", "FedEx", "UPS", "Maersk Air Cargo"],
   ocean: ["Maersk", "MSC", "CMA CGM", "Hapag-Lloyd"],
   road: ["XPO", "Schneider", "JB Hunt", "Old Dominion"],
 };
 
-function estimateBaseRate(kg: number, volumeM3: number, distanceKm: number, multiplier: number, mode: string) {
+function estimateBaseRate(kg: number, volumeM3: number, distanceKm: number, multiplier: number, mode: ModeId) {
   const densityAdj = Math.max(kg / (volumeM3 * 167 || 1), 0.6); // basic dim weight adjustment
   const modeAdj = mode === "air" ? 1.8 : mode === "ocean" ? 0.4 : 1.0;
   const distanceAdj = Math.log(distanceKm + 20) / 5; // diminishing effect
@@ -48,12 +61,12 @@ function estimateDistanceKm(origin: string, destination: string) {
   return 800 + diff * 120 + Math.abs(origin.charCodeAt(0) - destination.charCodeAt(0)) * 5;
 }
 
-function estimateTransitDays(distanceKm: number, mode: string, speedHintDays: number) {
+function estimateTransitDays(distanceKm: number, mode: ModeId, speedHintDays: number) {
   const base = distanceKm / (mode === "air" ? 2000 : mode === "ocean" ? 600 : 700);
   return Math.ceil(Math.max(base, speedHintDays * 0.6));
 }
 
-function estimateCO2eKg(mode: string, distanceKm: number, weightKg: number) {
+function estimateCO2eKg(mode: ModeId, distanceKm: number, weightKg: number) {
   const modeDef = MODES.find((m) => m.id === mode)!;
   const tonKm = (weightKg / 1000) * distanceKm;
   return Math.round((modeDef.emissionFactor * tonKm) / 1000); // kg CO2e
@@ -67,13 +80,13 @@ function currency(n: number) {
 export default function FreightCompareApp() {
   const [origin, setOrigin] = useState("");
   const [destination, setDestination] = useState("");
-  const [mode, setMode] = useState<string>("air");
-  const [service, setService] = useState<string>("standard");
+  const [mode, setMode] = useState<ModeId>("air");
+  const [service, setService] = useState<ServiceId>("standard");
   const [weight, setWeight] = useState<number>(100);
   const [length, setLength] = useState<number>(120);
   const [width, setWidth] = useState<number>(80);
   const [height, setHeight] = useState<number>(60);
-  const [sortBy, setSortBy] = useState<"price" | "eta" | "co2">("price");
+  const [sortBy, setSortBy] = useState<SortKey>("price");
   const [maxPrice, setMaxPrice] = useState<number>(5000);
   const [onlyGreen, setOnlyGreen] = useState<boolean>(false);
 
@@ -81,8 +94,8 @@ export default function FreightCompareApp() {
   const distanceKm = useMemo(() => estimateDistanceKm(origin, destination), [origin, destination]);
   const serviceMeta = SERVICE_LEVELS.find((s) => s.id === service)!;
 
-  const quotes = useMemo(() => {
-    if (!origin || !destination) return [] as any[];
+  const quotes = useMemo<Quote[]>(() => {
+    if (!origin || !destination) return [];
     const carriers = CARRIERS[mode];
     return carriers.map((name, idx) => {
       const base = estimateBaseRate(weight, volumeM3, distanceKm, serviceMeta.multiplier * (1 + idx * 0.05), mode);
@@ -99,7 +112,7 @@ export default function FreightCompareApp() {
     });
   }, [origin, destination, mode, volumeM3, weight, distanceKm, serviceMeta, service]);
 
-  const filteredSorted = useMemo(() => {
+  const filteredSorted = useMemo<Quote[]>(() => {
     let rows = quotes.filter((q) => q.price <= maxPrice);
     if (onlyGreen) {
       const threshold = Math.min(...rows.map((r) => r.co2e)) * 1.2; // top ~20% cleanest
@@ -131,7 +144,7 @@ export default function FreightCompareApp() {
               </div>
               <div>
                 <Label>Mode</Label>
-                <Select value={mode} onValueChange={setMode}>
+                <Select value={mode} onValueChange={(v)=>setMode(v as ModeId)}>
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select mode" />
                   </SelectTrigger>
@@ -144,7 +157,7 @@ export default function FreightCompareApp() {
               </div>
               <div>
                 <Label>Service</Label>
-                <Select value={service} onValueChange={setService}>
+                <Select value={service} onValueChange={(v)=>setService(v as ServiceId)}>
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select service" />
                   </SelectTrigger>
@@ -207,7 +220,7 @@ export default function FreightCompareApp() {
                   <div className="mt-3 grid gap-3">
                     <div className="flex items-center gap-2">
                       <Label className="w-24">Sort by</Label>
-                      <Select value={sortBy} onValueChange={(v)=>setSortBy(v as any)}>
+                      <Select value={sortBy} onValueChange={(v: SortKey)=>setSortBy(v)}>
                         <SelectTrigger className="w-full"><SelectValue/></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="price">Price</SelectItem>
@@ -218,7 +231,7 @@ export default function FreightCompareApp() {
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-24">Max price</Label>
-                      <Slider value={[maxPrice]} onValueChange={(v)=>setMaxPrice(v[0])} min={100} max={10000} step={50} />
+                      <Slider value={[maxPrice]} onValueChange={(v: number[])=>setMaxPrice(v[0])} min={100} max={10000} step={50} />
                       <span className="text-sm tabular-nums">{currency(maxPrice)}</span>
                     </div>
                     <div className="flex items-center gap-2">
